@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jev Research Desk</title>
+<style>
+html,body{margin:0;height:100%;background:#050508;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+canvas{display:block;max-width:100vw;max-height:100vh;width:auto;height:100vh;aspect-ratio:1080/1184}
+@media (max-aspect-ratio:1080/1184){canvas{width:100vw;height:auto}}
+#pz{position:fixed;right:10px;bottom:8px;font:10px ui-monospace,Menlo,monospace;color:#5c5c66;background:#101014;border:1px solid #26262e;border-radius:6px;padding:4px 8px;cursor:pointer;letter-spacing:1px}
+#pz:hover{color:#ff4dbe;border-color:#ff2ea6}
+</style></head>
+<body>
+<canvas id="c" width="1080" height="1184"></canvas>
+<div id="pz">PAUSE SIMULATION</div>
+<script>
+(()=>{
+const c=document.getElementById('c'),x=c.getContext('2d');
+const W=1080,H=1184;
+const BG='#050508',P1='#101014',P2='#16161c',HAIR='#26262e',WH='#f2f2f5',G1='#9a9aa6',G2='#5c5c66',G3='#34343c',PK='#ff2ea6',PK2='#ff4dbe';
+const MONO='"JetBrains Mono","IBM Plex Mono","DejaVu Sans Mono",ui-monospace,Menlo,monospace';
+const cl=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+function mk(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function txt(t,X,Y,sz,col,al='left',b=false,ls=0,a=1){x.globalAlpha=a;x.font=(b?'bold ':'')+sz+'px '+MONO;x.letterSpacing=ls+'px';x.fillStyle=col;x.textAlign=al;x.fillText(t,X,Y);x.letterSpacing='0px';x.globalAlpha=1}
+function tw(t,sz,b=false,ls=0){x.font=(b?'bold ':'')+sz+'px '+MONO;x.letterSpacing=ls+'px';const w=x.measureText(t).width;x.letterSpacing='0px';return w}
+function rr(X,Y,w,h,r,fill,stroke,lw=1){x.beginPath();x.roundRect(X,Y,w,h,r);if(fill){x.fillStyle=fill;x.fill()}if(stroke){x.strokeStyle=stroke;x.lineWidth=lw;x.stroke()}}
+const fmt=n=>Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');
+const pad=n=>String(n).padStart(2,'0');
+
+// ---------- static background ----------
+const bgc=document.createElement('canvas');bgc.width=W;bgc.height=H;{const b=bgc.getContext('2d');b.fillStyle=BG;b.fillRect(0,0,W,H);
+ b.strokeStyle='rgba(255,255,255,0.028)';b.lineWidth=1;for(let i=0;i<=W;i+=28){b.beginPath();b.moveTo(i+.5,0);b.lineTo(i+.5,H);b.stroke()}for(let j=0;j<=H;j+=28){b.beginPath();b.moveTo(0,j+.5);b.lineTo(W,j+.5);b.stroke()}
+ const g=b.createRadialGradient(480,470,20,480,470,520);g.addColorStop(0,'rgba(255,46,166,0.05)');g.addColorStop(1,'rgba(0,0,0,0)');b.fillStyle=g;b.fillRect(0,0,W,H)}
+
+// ---------- graph ----------
+const N={};
+function node(id,title,tag,X,Y,w){N[id]={id,title,tag,x:X,y:Y,w:w||150,h:44,heat:0,status:'idle',conf:null,today:0,hot:false}}
+node('arxiv','arxiv','CORE',260,168,150);node('github','github','CORE',480,168,150);node('xrss','x + rss','CORE',700,168,150);
+node('skipped','skipped','LOG',190,248,130);node('worth','worth reading?','BOOL',480,248,190);
+node('which','which desk?','CHOICE',480,322,190);
+node('dpapers','desk · papers','LLM',280,402,170);node('drepos','desk · repos','LLM',480,402,170);node('dmarket','desk · market','LLM',680,402,170);
+node('rpapers','rerank','CORE',280,470,130);node('rrepos','rerank','CORE',480,470,130);node('rmarket','rerank','CORE',680,470,130);
+node('dropped','dropped','LOG',170,552,120);node('claim','claim holds?','BOOL',360,552,170);node('newk','new or known?','CHOICE',580,552,180);node('vault','vault','RISK',800,552,120);
+node('write','write note','LLM',280,634,160);node('judge','judge','CHOICE',480,634,150);node('frontier','frontier llm','LLM',720,634,170);
+node('archive','archive','RISK',200,716,130);node('matters','matters to you?','CHOICE',480,716,190);node('brief','morning brief','LLM',750,716,170);
+const E={};let eid=0;
+function edge(a,b,bend){const k=a+'>'+b;E[k]={a,b,bend:bend||0,heat:0,id:eid++}}
+['arxiv','github','xrss'].forEach(s=>edge(s,'worth'));
+edge('worth','skipped');edge('worth','which');
+['dpapers','drepos','dmarket'].forEach(d=>edge('which',d));
+edge('dpapers','rpapers');edge('drepos','rrepos');edge('dmarket','rmarket');
+['rpapers','rrepos','rmarket'].forEach(r=>edge(r,'claim'));
+edge('claim','dropped');edge('claim','newk');edge('newk','vault');edge('newk','write');
+edge('write','judge');edge('judge','frontier');edge('judge','matters');edge('frontier','matters');edge('judge','archive');
+edge('matters','brief');edge('matters','archive');edge('vault','write',1);
+const R=mk(20260928);
+// bundle offsets per edge
+for(const k in E){const e=E[k];e.off=[];for(let i=0;i<11;i++)e.off.push([(R()-.5)*18,(R()-.5)*14])}
+function pts(e){const A=N[e.a],B=N[e.b];let x0=A.x,y0=A.y+A.h/2,x1=B.x,y1=B.y-B.h/2;
+ if(Math.abs(A.y-B.y)<5){y0=A.y;y1=B.y;x0=A.x+(B.x>A.x?A.w/2:-A.w/2);x1=B.x+(B.x>A.x?-B.w/2:B.w/2);return[x0,y0,(x0+x1)/2,y0,(x0+x1)/2,y1,x1,y1]}
+ if(e.bend){x0=A.x-A.w/2;y0=A.y;x1=B.x+B.w/2;y1=B.y;return[x0,y0,x0-60,y0+10,x1+80,y1-40,x1,y1]}
+ const dy=(y1-y0)*.55;return[x0,y0,x0,y0+dy,x1,y1-dy,x1,y1]}
+function bez(p,t){const u=1-t;return[u*u*u*p[0]+3*u*u*t*p[2]+3*u*t*t*p[4]+t*t*t*p[6],u*u*u*p[1]+3*u*u*t*p[3]+3*u*t*t*p[5]+t*t*t*p[7]]}
+
+// ---------- sim state ----------
+let S;
+const PAPERS=['sparse moe routing at scale','calibrated judges for evals','long context retrieval decay','agent memory compaction','test time compute limits','tool use under noise','reward hacking in code rl','small models as routers'];
+const REPOS=['browser-use/jev-ultrafast','typesafe-ai/skills','langchain/langgraph','openhands/agent','vllm-project/vllm','ollama/ollama'];
+const MARKET=['gpu spot prices down 8%','new eval lab raises seed','api price cut on flash tier','agent infra hiring spree','inference startup acquired'];
+function reset(){S={t:0,day:0,nextSpawn:.2,packets:[],screened:0,notes:0,escalated:0,toyou:0,judged:0,accepted:0,decisions:0,split:{papers:0,repos:0,market:0},briefs:0,
+ jevSpend:0,frontSpend:0,log:[],hours:new Array(10).fill(0),vault:new Array(96).fill(0),rnd:mk(777),wrapFlash:0,dayCount:1};
+ for(const k in N){N[k].heat=0;N[k].status='idle';N[k].conf=null;N[k].today=0}for(const k in E)E[k].heat=0}
+reset();
+const DAY=20;// seconds per loop
+function clockOf(t){const ph=(t%DAY)/DAY;const mins=22*60+ph*9*60;const m=Math.floor(mins)%(24*60);return[Math.floor(m/60),m%60,ph]}
+function log(stage,res,hot){const [h,m]=clockOf(S.t);S.log.push({ts:pad(h)+':'+pad(m),stage,res,hot});if(S.log.length>40)S.log.shift()}
+function fire(id,status,conf){const n=N[id];n.heat=1;n.status=status;n.conf=conf==null?null:conf;S.decisions++;S.jevSpend+= (N[id].tag=='BOOL'||N[id].tag=='CHOICE')?0.000044:0}
+function send(a,b,pk,delay=0){const e0=E[a+'>'+b];if(e0&&['BOOL','CHOICE'].includes(N[a].tag))e0.lbl=N[a].status;if(S.packets.length>=44)return;const e=E[a+'>'+b];if(!e)return;S.packets.push({e,t:-delay,dur:.38+S.rnd()*.2,pk});if(e.lbl){e.lblText=e.lbl;e.lblHeat=1.4}}
+function spawn(){const r=S.rnd;const src=['arxiv','github','xrss'][r()<.45?0:r()<.6?1:2];const kind=src=='arxiv'?'papers':src=='github'?'repos':(r()<.6?'market':'papers');
+ const title=kind=='papers'?PAPERS[Math.floor(r()*PAPERS.length)]:kind=='repos'?REPOS[Math.floor(r()*REPOS.length)]:MARKET[Math.floor(r()*MARKET.length)];
+ N[src].today++;fire(src,title.slice(0,22),null);send(src,'worth',{kind,title,score:r()})}
+function arrive(e,pk){const r=S.rnd;const id=e.b;const n=N[id];
+ switch(id){
+ case 'worth':{S.screened++;const [h]=clockOf(S.t);S.hours[(h-22+24)%24<10?(h-22+24)%24:9]++;const p=+(r()).toFixed(2);const yes=r()<.62;
+  if(yes){fire(id,'keep '+(0.6+r()*.39).toFixed(2),null);log('worth reading','keep',true);send('worth','which',pk)}else{fire(id,'skip '+(0.2+r()*.3).toFixed(2),null);log('worth reading','skip',false);send('worth','skipped',pk)}break}
+ case 'skipped':fire(id,'skip · '+pk.title.slice(0,14),null);break;
+ case 'which':{const k=r()<.46?'papers':r()<.55?'repos':'market';pk.kind=k;S.split[k]++;const cf=(0.62+r()*.36).toFixed(2);fire(id,'choice '+cf+' · '+k,cf);log('which desk',k,false);send('which','d'+k,pk);break}
+ case 'dpapers':case 'drepos':case 'dmarket':fire(id,'reading · '+pk.title.slice(0,16),null);send(id,'r'+id.slice(1),pk);break;
+ case 'rpapers':case 'rrepos':case 'rmarket':{const keep=3+Math.floor(r()*4);fire(id,keep+' of 20',null);send(id,'claim',pk);break}
+ case 'claim':{const ok=r()<.8;const cf=(ok?0.8+r()*.19:0.3+r()*.3).toFixed(2);if(ok){fire(id,'holds '+cf,cf);log('claim holds','keep',true);send('claim','newk',pk)}else{fire(id,'drop '+cf,cf);log('claim holds','drop',false);send('claim','dropped',pk)}break}
+ case 'dropped':fire(id,'drop · '+pk.title.slice(0,14),null);break;
+ case 'newk':{const v=['related','revises','contradicts','duplicate'][Math.floor(r()*4)];fire(id,v+' '+(0.7+r()*.29).toFixed(2),null);log('new or known',v,v=='contradicts');send('newk','vault',pk);if(v!='duplicate')send('newk','write',pk,.05);break}
+ case 'vault':{fire(id,'stored · '+fmt(1200+S.notes*3),null);S.vault[Math.floor(r()*96)]=1;break}
+ case 'write':{S.notes++;fire(id,'note #'+(S.notes),null);send('write','judge',pk);break}
+ case 'judge':{S.judged++;const esc=r()<.36;const cf=(esc?0.45+r()*.35:0.9+r()*.09).toFixed(2);
+  if(esc){S.escalated++;fire(id,'escalate '+cf,cf);log('judge','escalate',true);send('judge','frontier',pk)}
+  else{S.accepted++;fire(id,'verdict '+cf,cf);log('judge','accept',true);if(pk.score>.55)send('judge','matters',pk);else send('judge','archive',pk)}break}
+ case 'frontier':{S.frontSpend+=0.012182;fire(id,'reviewing · '+pk.title.slice(0,12),null);if(pk.score>.5)send('frontier','matters',pk);break}
+ case 'archive':fire(id,'archived '+fmt(S.notes-S.toyou),null);break;
+ case 'matters':{const hi=pk.score>.72;const cf=(hi?0.8+r()*.19:0.4+r()*.3).toFixed(2);if(hi){fire(id,'yes '+cf,cf);log('matters to you','brief',true);send('matters','brief',pk)}else{fire(id,'not today '+cf,cf);log('matters to you','archive',false);send('matters','archive',pk)}break}
+ case 'brief':{S.toyou++;fire(id,'item '+S.toyou+' · '+pk.title.slice(0,12),null);if(S.rnd()<.3)send('vault','write',{...pk,score:0},.1);break}
+ }}
+function step(dt){S.t+=dt;
+ // day wrap
+ const d=Math.floor(S.t/DAY);if(d!==S.day){S.day=d;S.dayCount++;S.briefs++;S.wrapFlash=1;
+  S.screened=Math.floor(S.screened*.08);S.notes=Math.floor(S.notes*.08);S.escalated=Math.floor(S.escalated*.08);S.toyou=0;S.judged=Math.floor(S.judged*.08);S.accepted=Math.floor(S.accepted*.08);
+  S.jevSpend*=.05;S.frontSpend*=.05;S.hours=S.hours.map(v=>v*.1);S.split={papers:0,repos:0,market:0};for(const k of ['arxiv','github','xrss'])N[k].today=0}
+ S.wrapFlash=Math.max(0,S.wrapFlash-dt*1.5);
+ S.nextSpawn-=dt;if(S.nextSpawn<=0){spawn();S.nextSpawn=.22+S.rnd()*.28}
+ for(const p of S.packets){p.t+=dt}
+ const done=S.packets.filter(p=>p.t>=p.dur);S.packets=S.packets.filter(p=>p.t<p.dur);
+ for(const p of done)arrive(p.e,p.pk);
+ for(const p of S.packets)if(p.t>0)p.e.heat=Math.min(1,p.e.heat+dt*6);
+ for(const k in E){E[k].heat=Math.max(0,E[k].heat-dt*1.1);if(E[k].lblHeat)E[k].lblHeat=Math.max(0,E[k].lblHeat-dt*.9)}
+ for(const k in N)N[k].heat=Math.max(0,N[k].heat-dt*1.6);
+ for(let i=0;i<96;i++)S.vault[i]=Math.max(0.06,S.vault[i]-dt*.12);
+}
+
+// ---------- drawing ----------
+function drawEdges(){
+ for(const k in E){const e=E[k];const p=pts(e);
+  for(let i=0;i<e.off.length;i++){const o=e.off[i];const q=[p[0],p[1],p[2]+o[0],p[3]+o[1],p[4]-o[0],p[5]+o[1],p[6],p[7]];
+   x.globalAlpha=0.06+(i==0?0.1:0);x.strokeStyle=WH;x.lineWidth=1;x.beginPath();x.moveTo(q[0],q[1]);x.bezierCurveTo(q[2],q[3],q[4],q[5],q[6],q[7]);x.stroke();
+   if(e.heat>0.01){x.globalAlpha=e.heat*(i==0?.9:.35);x.strokeStyle=PK;x.lineWidth=i==0?1.6:1;x.beginPath();x.moveTo(q[0],q[1]);x.bezierCurveTo(q[2],q[3],q[4],q[5],q[6],q[7]);x.stroke()}}
+  x.globalAlpha=1}
+ // the loop cable vault -> x+rss
+ const V=N.vault,X2=N.xrss;x.globalAlpha=.18;x.strokeStyle=WH;x.setLineDash([3,5]);x.beginPath();x.moveTo(V.x+V.w/2,V.y);x.bezierCurveTo(V.x+140,V.y-40,X2.x+220,X2.y+40,X2.x+X2.w/2,X2.y);x.stroke();x.setLineDash([]);x.globalAlpha=1;
+ txt('vault feeds the loop',870,380,9,G2,'left',false,1);
+}
+function drawPackets(){for(const p of S.packets){if(p.t<0)continue;const k=cl(p.t/p.dur);const [px,py]=bez(pts(p.e),k);
+  const g=x.createRadialGradient(px,py,0,px,py,14);g.addColorStop(0,'rgba(255,77,190,0.9)');g.addColorStop(1,'rgba(255,46,166,0)');x.fillStyle=g;x.beginPath();x.arc(px,py,14,0,7);x.fill();
+  x.fillStyle='#fff';x.beginPath();x.arc(px,py,2.2,0,7);x.fill();
+  // trail
+  for(let j=1;j<6;j++){const [tx,ty]=bez(pts(p.e),cl(k-j*.03));x.globalAlpha=.5-j*.08;x.fillStyle=PK2;x.beginPath();x.arc(tx,ty,2-j*.25,0,7);x.fill()}x.globalAlpha=1}}
+function drawLabels(){for(const k in E){const e=E[k];if(!e.lblHeat||e.lblHeat<=0)continue;const [mx,my]=bez(pts(e),.5);const t=e.lblText||'';const w=tw(t,9,true)+12;const a=cl(e.lblHeat);x.globalAlpha=a;rr(mx-w/2,my-9,w,17,4,PK,null);x.globalAlpha=1;txt(t,mx,my+3,9,'#1a0010','center',true,0,a)}}
+function drawNodes(){for(const k in N){const n=N[k];const X=n.x-n.w/2,Y=n.y-n.h/2;
+ if(n.heat>0.02){x.shadowColor='rgba(255,46,166,'+(.8*n.heat)+')';x.shadowBlur=22*n.heat}
+ const solid=n.heat>.55;rr(X,Y,n.w,n.h,9,solid?PK:(n.heat>.02?'#17121a':P1),n.heat>.02?`rgba(255,46,166,${.35+.65*n.heat})`:HAIR,1);x.shadowBlur=0;
+ if(n.heat>.02){x.globalAlpha=.12*n.heat;x.fillStyle=PK;x.beginPath();x.roundRect(X+1,Y+1,n.w-2,n.h-2,8);x.fill();x.globalAlpha=1}
+ txt(n.title,X+10,Y+18,12,solid?'#1a0010':WH,'left',true);
+ const tg=n.tag;const w=tw(tg,8,true,1)+8;rr(X+n.w-w-7,Y+7,w,13,3,null,n.tag=='RISK'?'rgba(255,46,166,.5)':G3,1);txt(tg,X+n.w-w/2-7,Y+17,8,solid?'#1a0010':(n.tag=='RISK'?PK2:G1),'center',true,1);
+ const src=['arxiv','github','xrss'].includes(k);const lim=(n.w/6.4|0)-(src?9:0);const st=n.status;txt(st.length>lim?st.slice(0,lim-1)+'…':st,X+10,Y+35,10,solid?'#2a0018':(n.heat>.2?PK2:G1),'left');if(0)txt(st.length>(n.w/6.4|0)?st.slice(0,(n.w/6.4|0)-1)+'…':st,X+10,Y+35,10,solid?'#2a0018':(n.heat>.2?PK2:G1),'left');
+ if(src)txt('today '+n.today,X+n.w-8,Y+35,9,solid?'#2a0018':G2,'right')}}
+function header(){const [h,m,ph]=clockOf(S.t);
+ x.fillStyle=PK;x.fillRect(20,22,3,22);
+ txt('JEV RESEARCH DESK',32,40,21,WH,'left',true,1);const w=tw('JEV RESEARCH DESK',21,true,1);txt('// 24/7',32+w+10,40,21,PK,'left',true,1);
+ txt('a research team that runs while you sleep.',32,60,10.5,G1);txt('jev decides every fork. the LLM only reads and writes.',32,74,10.5,G1);
+ const leg=['SOURCES','SCREEN','DESKS','VERIFY','MEMORY','JUDGE','YOU'];let X=32;leg.forEach((l,i)=>{txt(l,X,94,9,i==6?PK2:G2,'left',true,1.5);X+=tw(l,9,true,1.5)+6;if(i<6){txt('>',X,94,9,G3,'left',true);X+=14}});
+ // counters
+ const cells=[['CLOCK',pad(h)+':'+pad(m)],['SCREENED',fmt(S.screened)],['NOTES',fmt(S.notes)],['ESCALATED',fmt(S.escalated)],['TO YOU',fmt(S.toyou)]];
+ let cx=560;cells.forEach((cc,i)=>{const cw=82;rr(cx,16,cw-6,52,7,P1,HAIR);txt(cc[0],cx+9,31,8,G2,'left',true,1.5);txt(cc[1],cx+9,57,19,i==4?PK2:WH,'left',true);cx+=cw});
+ const bl=(Math.floor(S.t*2)%2)?1:.55;rr(cx+2,18,58,20,10,`rgba(255,46,166,${.18*bl})`,PK,1);x.globalAlpha=bl;x.fillStyle=PK;x.beginPath();x.arc(cx+14,28,3.5,0,7);x.fill();x.globalAlpha=1;txt('LIVE',cx+22,32,10,PK2,'left',true,1.5);
+ 
+ x.globalAlpha=.9;x.fillStyle=HAIR;x.fillRect(20,104,W-40,1);x.globalAlpha=1;
+ // progress of shift
+ x.fillStyle=PK;x.fillRect(20,104,(W-40)*ph,1.5);txt('ONE SHIFT 22:00 TO 07:00  ·  ONE DAY PER LOOP',W-20,94,8,G2,'right',true,1);
+}
+function rail(){const L=[['SIGNALS · CORE',168],['SCREEN · BOOL',248],['ROUTE · SCREEN',322],['RESEARCH · LLM',402],['VERIFY · MEMORY',552],['WRITE · LLM',634],['JUDGE · CHOICE',680],['SCORE · OUT',716]];
+ L.forEach(l=>{txt(l[0],14,l[1]+3,8,G3,'left',true,1)});x.fillStyle=G3;x.fillRect(96,130,1,620)}
+function rightSide(){const X=880;rr(X,124,180,190,8,P1,HAIR);txt('MODE KINDS',X+12,144,9,G2,'left',true,2);
+ [['jev','decide',PK],['llm','reads, writes',WH],['desk','planning',G1],['desk','memory',G1],['out','you',PK2]].forEach((m,i)=>{const y=172+i*28;x.fillStyle=m[2];x.fillRect(X+12,y-8,8,8);txt(m[0],X+28,y,11,WH,'left',true);txt('· '+m[1],X+28+tw(m[0],11,true)+6,y,11,G1)});
+ rr(X,326,180,40,8,P1,HAIR);txt('THE LOOP',X+12,351,11,PK2,'left',true,3);txt('↻',X+158,352,14,PK,'center',true);
+ // decisions box
+ rr(X,600,180,190,8,P1,HAIR);txt('DECISIONS TODAY',X+12,620,9,G2,'left',true,2);txt(fmt(S.decisions%100000),X+12,660,30,WH,'left',true);
+ txt('typed answers, no prose',X+12,682,9,G1);txt('p50 0.15 s / decision',X+12,700,9,G1);
+ // mini sparkline of packets
+ const hist=S.hist||(S.hist=[]);if(!S._lastH||S.t-S._lastH>.1){hist.push(S.packets.length);if(hist.length>40)hist.shift();S._lastH=S.t}
+ x.strokeStyle=PK;x.lineWidth=1.2;x.beginPath();hist.forEach((v,i)=>{const px=X+12+i*4,py=772-v*3;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke();txt('in flight '+S.packets.length,X+168,730,9,G2,'right');
+}
+function panel(i,title){const pw=(W-32-5*8)/6;const X=16+i*(pw+8),Y=812;rr(X,Y,pw,316,9,P1,HAIR);txt(title,X+10,Y+18,8.5,G2,'left',true,1.8);return[X,Y,pw]}
+function bottom(){
+ // 1 RAW LOG
+ let [X,Y,w]=panel(0,'RAW LOG');const L=S.log.slice(-17);L.forEach((l,i)=>{const yy=Y+38+i*16;txt(l.ts,X+8,yy,8.5,G2);txt(l.stage.slice(0,13),X+44,yy,8.5,G1);const col=l.res=='escalate'?PK2:(l.res=='skip'||l.res=='drop'||l.res=='archive'||l.res=='duplicate')?G2:PK;txt(l.res,X+w-8,yy,8.5,col,'right',l.res=='escalate')});
+ // 2 RATES BY HOUR
+ [X,Y,w]=panel(1,'RATES BY HOUR');const mx=Math.max(4,...S.hours);const hrs=['22','23','00','01','02','03','04','05','06','07'];
+ hrs.forEach((hh,i)=>{const yy=Y+40+i*22;txt(hh,X+8,yy+8,8.5,G2);const bw=(w-50)*S.hours[i]/mx;x.fillStyle=G3;x.fillRect(X+30,yy,w-50,9);x.fillStyle=i>=2&&i<=5?PK:'#b0207a';x.fillRect(X+30,yy,bw,9);txt(Math.round(S.hours[i])+'',X+w-8,yy+8,8,G1,'right')});
+ txt('peak hours · night shift',X+10,Y+280,8.5,PK2);txt('screened per hour',X+10,Y+296,8,G2);
+ // 3 JUDGE CASCADE
+ [X,Y,w]=panel(2,'JUDGE CASCADE');const pct=100*(S.escalated+3.4)/(S.judged+10);txt(pct.toFixed(1)+'%',X+10,Y+74,38,WH,'left',true);txt('of verdicts escalated',X+10,Y+94,9,G1);
+ const acc=(S.accepted+6.6)/(S.judged+10);x.fillStyle=G3;x.fillRect(X+10,Y+110,w-20,8);x.fillStyle=PK;x.fillRect(X+10,Y+110,(w-20)*acc,8);txt('accepted',X+10,Y+134,9,G1);txt(fmt(S.accepted),X+w-10,Y+134,9,WH,'right',true);
+ txt('hold',X+10,Y+156,9,G1);txt('accept if sure',X+w-10,Y+156,9,PK2,'right');txt(fmt(S.escalated)+' escalated',X+10,Y+178,9,WH,'left',true);
+ x.fillStyle=HAIR;x.fillRect(X+10,Y+194,w-20,1);txt('PAPER, τ = 0.9',X+10,Y+214,8,G2,'left',true,1.5);txt('34% escalated',X+10,Y+234,10,WH,'left',true);txt('91.3% vs 91.7% acc',X+10,Y+254,10,WH,'left',true);txt('at 47% of the fee',X+10,Y+274,10,PK2,'left',true);txt('vs frontier judge alone',X+10,Y+294,8.5,G2);
+ // 4 VAULT HEAT
+ [X,Y,w]=panel(3,'VAULT HEAT');const cs=Math.floor((w-20)/8);for(let i=0;i<96;i++){const cx=X+10+(i%8)*cs,cy=Y+34+Math.floor(i/8)*cs;const v=S.vault[i];const r=Math.round(20+235*v),g=Math.round(18+28*v),b=Math.round(26+140*v);x.fillStyle=`rgb(${r},${g},${b})`;x.fillRect(cx,cy,cs-3,cs-3)}
+ txt('notes stored',X+10,Y+34+12*cs+14,9,G1);txt(fmt(1200+S.notes*3),X+w-10,Y+34+12*cs+14,9,WH,'right',true);
+ // 5 SPEND TODAY
+ [X,Y,w]=panel(4,'SPEND TODAY');const tot=S.jevSpend+S.frontSpend;txt('$'+tot.toFixed(3),X+10,Y+76,36,WH,'left',true);txt('this shift (sim)',X+10,Y+96,9,G1);
+ txt('jev only',X+10,Y+128,9,G1);txt('$'+S.jevSpend.toFixed(3),X+w-10,Y+128,9,PK2,'right',true);
+ txt('+ frontier',X+10,Y+148,9,G1);txt('$'+S.frontSpend.toFixed(3),X+w-10,Y+148,9,WH,'right',true);
+ const jr=tot?S.jevSpend/tot:0;x.fillStyle=G3;x.fillRect(X+10,Y+162,w-20,8);x.fillStyle=PK;x.fillRect(X+10,Y+162,Math.max(2,(w-20)*jr),8);
+ x.fillStyle=HAIR;x.fillRect(X+10,Y+190,w-20,1);txt('PRICE / 1,000 JUDGMENTS',X+10,Y+210,8,G2,'left',true,1.2);txt('jev',X+10,Y+232,10,G1);txt('$0.044',X+w-10,Y+232,10,PK2,'right',true);txt('gpt-6',X+10,Y+252,10,G1);txt('$12.182',X+w-10,Y+252,10,WH,'right',true);txt('~277x cheaper per call',X+10,Y+280,9,G1);
+ // 6 LEDGER
+ [X,Y,w]=panel(5,'LEDGER');const rows=[['screened',S.screened],['notes',S.notes],['escalated',S.escalated],['to you',S.toyou]];rows.forEach((r2,i)=>{txt(r2[0],X+10,Y+44+i*20,9.5,G1);txt(fmt(r2[1]),X+w-10,Y+44+i*20,9.5,i==3?PK2:WH,'right',true)});
+ x.fillStyle=HAIR;x.fillRect(X+10,Y+126,w-20,1);txt('DESK SPLIT',X+10,Y+146,8,G2,'left',true,1.5);
+ const st=S.split.papers+S.split.repos+S.split.market||1;[['papers',S.split.papers],['repos',S.split.repos],['market',S.split.market]].forEach((d,i)=>{const yy=Y+166+i*20;txt(d[0],X+10,yy,9.5,G1);txt(Math.round(100*d[1]/st)+'%',X+w-10,yy,9.5,WH,'right',true)});
+ txt('morning briefs',X+10,Y+240,9.5,G1);txt(fmt(S.briefs),X+w-10,Y+240,9.5,PK2,'right',true);
+ txt('you read one brief,',X+10,Y+276,9.5,WH,'left',true);txt('not '+fmt(Math.max(S.screened,1))+' sources',X+10,Y+292,9.5,WH,'left',true);
+}
+function footer(){txt('simulation · illustrative activity · cascade figures and fees from JEV-as-a-Judge (CMU, arXiv 2609.26550) · Jev by TypeSafe AI',16,1156,8.5,G2);txt('@0xcato_',W-16,1156,11,G1,'right',true,1)}
+function render(){x.globalAlpha=1;x.drawImage(bgc,0,0);header();rail();drawEdges();drawPackets();drawNodes();drawLabels();rightSide();bottom();footer();
+ if(S.wrapFlash>0){x.globalAlpha=S.wrapFlash*.12;x.fillStyle=PK;x.fillRect(0,0,W,H);x.globalAlpha=1;txt('NEW DAY · BRIEF DELIVERED',480,790,12,PK2,'center',true,3,S.wrapFlash)}}
+
+// deterministic stepping for video capture, live loop for browser
+window.renderAt=function(t){if(t<S.t-1e-6)reset();while(S.t<t-1e-9)step(Math.min(1/60,t-S.t));render()};
+window.__ready=true;
+let paused=false,live=0,last=null;const capture=/capture/.test(location.hash);
+document.getElementById('pz').onclick=()=>{paused=!paused;document.getElementById('pz').textContent=paused?'RESUME SIMULATION':'PAUSE SIMULATION';last=null};
+if(capture)document.getElementById('pz').style.display='none';
+function loop(ts){if(!capture){if(last==null)last=ts;const dt=Math.min(.05,(ts-last)/1000);last=ts;if(!paused){live+=dt;window.renderAt(live)}requestAnimationFrame(loop)}}
+if(!capture)requestAnimationFrame(loop);else render();
+})();
+</script>
+</body></html>
